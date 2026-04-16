@@ -7,7 +7,7 @@ namespace SnipSimple.Services;
 
 public static class ScreenCaptureService
 {
-    public static CaptureResult? CaptureRegion(Rect bounds)
+    public static CaptureResult? CaptureRegion(Rect bounds, double dpiScaleX = 1.0, double dpiScaleY = 1.0)
     {
         int x = (int)bounds.X;
         int y = (int)bounds.Y;
@@ -22,17 +22,25 @@ public static class ScreenCaptureService
         return new CaptureResult
         {
             Image = bitmap,
-            Bounds = bounds
+            Bounds = bounds,
+            DpiScaleX = dpiScaleX,
+            DpiScaleY = dpiScaleY
         };
     }
 
-    public static CaptureResult? CaptureFullScreen()
+    public static CaptureResult? CaptureFullScreen(double dpiScaleX = 1.0, double dpiScaleY = 1.0)
     {
         var virtualScreen = GetVirtualScreenBounds();
-        return CaptureRegion(virtualScreen);
+        // Virtual screen bounds are in DIPs — convert to physical pixels for capture
+        var physBounds = new Rect(
+            virtualScreen.X * dpiScaleX,
+            virtualScreen.Y * dpiScaleY,
+            virtualScreen.Width * dpiScaleX,
+            virtualScreen.Height * dpiScaleY);
+        return CaptureRegion(physBounds, dpiScaleX, dpiScaleY);
     }
 
-    public static CaptureResult? CaptureWindow(IntPtr hWnd)
+    public static CaptureResult? CaptureWindow(IntPtr hWnd, double dpiScaleX = 1.0, double dpiScaleY = 1.0)
     {
         var bounds = WindowEnumerator.GetWindowBounds(hWnd);
         if (bounds.Width <= 0 || bounds.Height <= 0) return null;
@@ -55,8 +63,7 @@ public static class ScreenCaptureService
         if (!success)
         {
             NativeMethods.DeleteObject(hBitmap);
-            // Fallback to region capture
-            return CaptureRegion(bounds);
+            return CaptureRegion(bounds, dpiScaleX, dpiScaleY);
         }
 
         var bitmap = BitmapHelper.HBitmapToBitmapSource(hBitmap);
@@ -65,7 +72,9 @@ public static class ScreenCaptureService
         return new CaptureResult
         {
             Image = bitmap,
-            Bounds = bounds
+            Bounds = bounds,
+            DpiScaleX = dpiScaleX,
+            DpiScaleY = dpiScaleY
         };
     }
 

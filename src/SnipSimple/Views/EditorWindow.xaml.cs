@@ -64,13 +64,17 @@ public partial class EditorWindow : Window
         _pencilColor = ParseColor(_settingsService.Settings.PencilColor, Colors.Red);
         _highlighterColor = ParseColor(_settingsService.Settings.HighlighterColor, Colors.Yellow);
 
-        // Set up image
+        // Set up image — display at 1:1 pixel mapping.
+        // The image's PixelWidth is in physical screen pixels.
+        // Divide by screen DPI scale to get DIPs so WPF renders it 1:1.
         CapturedImage.Source = capture.Image;
-        CapturedImage.Width = capture.Image.PixelWidth;
-        CapturedImage.Height = capture.Image.PixelHeight;
+        double dipWidth = capture.Image.PixelWidth / capture.DpiScaleX;
+        double dipHeight = capture.Image.PixelHeight / capture.DpiScaleY;
+        CapturedImage.Width = dipWidth;
+        CapturedImage.Height = dipHeight;
 
-        AnnotationCanvas.Width = capture.Image.PixelWidth;
-        AnnotationCanvas.Height = capture.Image.PixelHeight;
+        AnnotationCanvas.Width = dipWidth;
+        AnnotationCanvas.Height = dipHeight;
 
         // Set up ink canvas
         SetPencilMode();
@@ -84,10 +88,14 @@ public partial class EditorWindow : Window
         AnnotationCanvas.PreviewMouseMove += ShiftDraw_MouseMove;
         AnnotationCanvas.PreviewMouseLeftButtonUp += ShiftDraw_MouseUp;
 
-        // Size window to fit image (with max bounds)
+        // Size window to fit image without scrollbars — use DIP sizes.
+        // Account for: canvas margin (20 each side = 40), scrollbar gutter (~20),
+        // window chrome (~16 horiz, ~40 vert), toolbar (~42), status bar (~28).
+        double extraWidth = 40 + 20 + 16;   // margins + scrollbar room + chrome
+        double extraHeight = 40 + 20 + 40 + 42 + 28; // margins + scrollbar room + chrome + toolbar + statusbar
         var screenBounds = ScreenCaptureService.GetPrimaryScreenBounds();
-        Width = Math.Min(capture.Image.PixelWidth + 60, screenBounds.Width * 0.9);
-        Height = Math.Min(capture.Image.PixelHeight + 120, screenBounds.Height * 0.9);
+        Width = Math.Min(dipWidth + extraWidth, screenBounds.Width * 0.9);
+        Height = Math.Min(dipHeight + extraHeight, screenBounds.Height * 0.9);
     }
 
     private static Color ParseColor(string hex, Color fallback)
@@ -599,17 +607,34 @@ public partial class EditorWindow : Window
                 AnnotationCanvas.Height));
 
             var currentImage = (BitmapSource)CapturedImage.Source;
+
+            // Convert DIP crop coords to physical pixel coords for CroppedBitmap
+            double scaleX = currentImage.PixelWidth / AnnotationCanvas.Width;
+            double scaleY = currentImage.PixelHeight / AnnotationCanvas.Height;
+            int pixX = (int)(x * scaleX);
+            int pixY = (int)(y * scaleY);
+            int pixW = (int)(w * scaleX);
+            int pixH = (int)(h * scaleY);
+
+            // Clamp to image bounds
+            pixW = Math.Min(pixW, currentImage.PixelWidth - pixX);
+            pixH = Math.Min(pixH, currentImage.PixelHeight - pixY);
+
             var cropped = new CroppedBitmap(currentImage,
-                new Int32Rect((int)x, (int)y, (int)w, (int)h));
+                new Int32Rect(pixX, pixY, pixW, pixH));
 
             var wb = new WriteableBitmap(cropped);
             wb.Freeze();
 
+            // Display at 1:1 using the original capture's DPI scale
+            double newDipW = wb.PixelWidth / _capture.DpiScaleX;
+            double newDipH = wb.PixelHeight / _capture.DpiScaleY;
+
             CapturedImage.Source = wb;
-            CapturedImage.Width = w;
-            CapturedImage.Height = h;
-            AnnotationCanvas.Width = w;
-            AnnotationCanvas.Height = h;
+            CapturedImage.Width = newDipW;
+            CapturedImage.Height = newDipH;
+            AnnotationCanvas.Width = newDipW;
+            AnnotationCanvas.Height = newDipH;
             AnnotationCanvas.Strokes.Clear();
             _redoStack.Clear();
         }
@@ -632,10 +657,10 @@ public partial class EditorWindow : Window
 
     private BitmapSource GetFlattenedBitmap()
     {
-        int width = (int)AnnotationCanvas.Width;
-        int height = (int)AnnotationCanvas.Height;
+        double dipWidth = AnnotationCanvas.Width;
+        double dipHeight = AnnotationCanvas.Height;
         return BitmapHelper.FlattenWithAnnotations(
-            (BitmapSource)CapturedImage.Source, AnnotationCanvas, width, height);
+            (BitmapSource)CapturedImage.Source, AnnotationCanvas, dipWidth, dipHeight);
     }
 
     private void BtnCopy_Click(object sender, RoutedEventArgs e) => CopyToClipboard();

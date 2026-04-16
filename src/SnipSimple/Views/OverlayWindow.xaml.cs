@@ -23,6 +23,10 @@ public partial class OverlayWindow : Window
     private Rectangle? _leftMask;
     private Rectangle? _rightMask;
 
+    // DPI scale factor (physical pixels per DIP)
+    private double _dpiScaleX = 1.0;
+    private double _dpiScaleY = 1.0;
+
     public event Action<CaptureResult?>? CaptureCompleted;
     public event Action? CaptureCancelled;
 
@@ -31,7 +35,7 @@ public partial class OverlayWindow : Window
         InitializeComponent();
         _mode = mode;
 
-        // Span all screens
+        // Span all screens using WPF DIP coordinates
         var bounds = ScreenCaptureService.GetVirtualScreenBounds();
         Left = bounds.Left;
         Top = bounds.Top;
@@ -55,7 +59,14 @@ public partial class OverlayWindow : Window
 
         Loaded += (_, _) =>
         {
-            // Position instruction text at top center
+            // Capture the DPI scale factor for this window
+            var source = PresentationSource.FromVisual(this);
+            if (source?.CompositionTarget != null)
+            {
+                _dpiScaleX = source.CompositionTarget.TransformToDevice.M11;
+                _dpiScaleY = source.CompositionTarget.TransformToDevice.M22;
+            }
+
             Canvas.SetLeft(InstructionBorder, (Width - InstructionBorder.ActualWidth) / 2);
             Canvas.SetTop(InstructionBorder, 40);
             Focus();
@@ -78,7 +89,6 @@ public partial class OverlayWindow : Window
         _startPoint = e.GetPosition(OverlayCanvas);
         _isDragging = true;
 
-        // Create selection rectangle
         _selectionRect = new Rectangle
         {
             Stroke = new SolidColorBrush(Color.FromRgb(0, 120, 212)),
@@ -87,13 +97,11 @@ public partial class OverlayWindow : Window
         };
         OverlayCanvas.Children.Add(_selectionRect);
 
-        // Create mask rectangles (dark overlay around selection)
         _topMask = CreateMask();
         _bottomMask = CreateMask();
         _leftMask = CreateMask();
         _rightMask = CreateMask();
 
-        // Hide the uniform overlay, we'll use masks instead
         OverlayCanvas.Background = Brushes.Transparent;
 
         InstructionBorder.Visibility = Visibility.Collapsed;
@@ -127,11 +135,12 @@ public partial class OverlayWindow : Window
         _selectionRect.Width = w;
         _selectionRect.Height = h;
 
-        // Update masks
         UpdateMasks(x, y, w, h);
 
-        // Update dimension label
-        DimensionText.Text = $"{(int)w} x {(int)h}";
+        // Show dimensions in physical pixels (what the user will actually get)
+        int physW = (int)(w * _dpiScaleX);
+        int physH = (int)(h * _dpiScaleY);
+        DimensionText.Text = $"{physW} x {physH}";
         Canvas.SetLeft(DimensionLabel, x);
         Canvas.SetTop(DimensionLabel, y + h + 4);
     }
@@ -140,25 +149,21 @@ public partial class OverlayWindow : Window
     {
         if (_topMask == null) return;
 
-        // Top mask
         Canvas.SetLeft(_topMask, 0);
         Canvas.SetTop(_topMask, 0);
         _topMask.Width = Width;
         _topMask.Height = Math.Max(0, y);
 
-        // Bottom mask
         Canvas.SetLeft(_bottomMask!, 0);
         Canvas.SetTop(_bottomMask!, y + h);
         _bottomMask!.Width = Width;
         _bottomMask.Height = Math.Max(0, Height - y - h);
 
-        // Left mask
         Canvas.SetLeft(_leftMask!, 0);
         Canvas.SetTop(_leftMask!, y);
         _leftMask!.Width = Math.Max(0, x);
         _leftMask.Height = Math.Max(0, h);
 
-        // Right mask
         Canvas.SetLeft(_rightMask!, x + w);
         Canvas.SetTop(_rightMask!, y);
         _rightMask!.Width = Math.Max(0, Width - x - w);
@@ -182,16 +187,19 @@ public partial class OverlayWindow : Window
 
         if (w > 5 && h > 5)
         {
-            // Convert from overlay coords to screen coords
-            var screenX = Left + x;
-            var screenY = Top + y;
-            var bounds = new Rect(screenX, screenY, w, h);
+            // Convert DIP coordinates to physical pixel coordinates for BitBlt.
+            // The overlay position (Left, Top) is in DIPs; the mouse coords (x, y)
+            // are relative to the overlay, also in DIPs. We need physical pixels.
+            var physX = (int)((Left + x) * _dpiScaleX);
+            var physY = (int)((Top + y) * _dpiScaleY);
+            var physW = (int)(w * _dpiScaleX);
+            var physH = (int)(h * _dpiScaleY);
+            var bounds = new Rect(physX, physY, physW, physH);
 
-            // Small delay to ensure overlay is invisible
             Dispatcher.InvokeAsync(async () =>
             {
                 await Task.Delay(50);
-                var result = ScreenCaptureService.CaptureRegion(bounds);
+                var result = ScreenCaptureService.CaptureRegion(bounds, _dpiScaleX, _dpiScaleY);
                 CaptureCompleted?.Invoke(result);
                 Close();
             });
@@ -211,16 +219,15 @@ public partial class OverlayWindow : Window
 
     private void Canvas_MouseMove_Window(object sender, MouseEventArgs e)
     {
+        // PointToScreen returns physical pixel coordinates
         var screenPoint = PointToScreen(e.GetPosition(this));
-        var pt = new System.Drawing.Point((int)screenPoint.X, (int)screenPoint.Y);
 
-        // Find the window under cursor from our enumerated list
+        // WindowEnumerator returns physical pixel bounds (from Win32 APIs)
         WindowInfo? found = null;
         foreach (var win in _windows)
         {
             if (win.Bounds.Contains(screenPoint))
             {
-                // Pick the smallest window that contains the point (most specific)
                 if (found == null || (win.Bounds.Width * win.Bounds.Height) < (found.Bounds.Width * found.Bounds.Height))
                 {
                     found = win;
@@ -233,11 +240,11 @@ public partial class OverlayWindow : Window
             _highlightedWindow = found.Handle;
             var b = found.Bounds;
 
-            // Convert screen coords to overlay coords
-            Canvas.SetLeft(WindowHighlight, b.X - Left);
-            Canvas.SetTop(WindowHighlight, b.Y - Top);
-            WindowHighlight.Width = b.Width;
-            WindowHighlight.Height = b.Height;
+            // Window bounds are in physical pixels; convert to DIPs for overlay positioning
+            Canvas.SetLeft(WindowHighlight, b.X / _dpiScaleX - Left);
+            Canvas.SetTop(WindowHighlight, b.Y / _dpiScaleY - Top);
+            WindowHighlight.Width = b.Width / _dpiScaleX;
+            WindowHighlight.Height = b.Height / _dpiScaleY;
             WindowHighlight.Visibility = Visibility.Visible;
         }
     }
@@ -246,13 +253,12 @@ public partial class OverlayWindow : Window
     {
         if (_highlightedWindow == IntPtr.Zero) return;
 
-        // Make transparent so we capture the actual screen
         Opacity = 0;
 
         Dispatcher.InvokeAsync(async () =>
         {
             await Task.Delay(50);
-            var result = ScreenCaptureService.CaptureWindow(_highlightedWindow);
+            var result = ScreenCaptureService.CaptureWindow(_highlightedWindow, _dpiScaleX, _dpiScaleY);
             CaptureCompleted?.Invoke(result);
             Close();
         });

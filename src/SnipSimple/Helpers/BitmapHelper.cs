@@ -52,15 +52,31 @@ public static class BitmapHelper
         encoder.Save(stream);
     }
 
-    public static BitmapSource FlattenWithAnnotations(BitmapSource background, Visual annotationVisual, int width, int height)
+    /// <summary>
+    /// Flatten the background image with annotation strokes at the source image's native resolution.
+    /// dipWidth/dipHeight are the WPF layout sizes (device-independent pixels) of the canvas.
+    /// The output bitmap will be at the source image's actual pixel resolution.
+    /// </summary>
+    public static BitmapSource FlattenWithAnnotations(BitmapSource background, Visual annotationVisual,
+        double dipWidth, double dipHeight)
     {
+        int pixelWidth = background.PixelWidth;
+        int pixelHeight = background.PixelHeight;
+
+        // Calculate the DPI needed so that the RTB's DIP coordinate space
+        // matches the canvas's DIP space (dipWidth x dipHeight), while
+        // producing output at the full pixel resolution.
+        // RTB formula: pixelWidth = dipWidth * (dpi / 96)  =>  dpi = pixelWidth / dipWidth * 96
+        double renderDpiX = pixelWidth / dipWidth * 96.0;
+        double renderDpiY = pixelHeight / dipHeight * 96.0;
+
         var drawingVisual = new DrawingVisual();
         using (var dc = drawingVisual.RenderOpen())
         {
-            dc.DrawImage(background, new Rect(0, 0, width, height));
+            dc.DrawImage(background, new Rect(0, 0, dipWidth, dipHeight));
         }
 
-        var rtb = new RenderTargetBitmap(width, height, 96, 96, PixelFormats.Pbgra32);
+        var rtb = new RenderTargetBitmap(pixelWidth, pixelHeight, renderDpiX, renderDpiY, PixelFormats.Pbgra32);
         rtb.Render(drawingVisual);
         rtb.Render(annotationVisual);
         rtb.Freeze();

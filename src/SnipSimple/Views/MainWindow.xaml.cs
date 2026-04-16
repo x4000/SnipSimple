@@ -103,10 +103,19 @@ public partial class MainWindow : Window
 
         CaptureResult? result = null;
 
+        // Get DPI scale for fullscreen capture
+        double dpiScaleX = 1.0, dpiScaleY = 1.0;
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget != null)
+        {
+            dpiScaleX = source.CompositionTarget.TransformToDevice.M11;
+            dpiScaleY = source.CompositionTarget.TransformToDevice.M22;
+        }
+
         switch (mode)
         {
             case SnipMode.FullScreen:
-                result = ScreenCaptureService.CaptureFullScreen();
+                result = ScreenCaptureService.CaptureFullScreen(dpiScaleX, dpiScaleY);
                 break;
 
             case SnipMode.Region:

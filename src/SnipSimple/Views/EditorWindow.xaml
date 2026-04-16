@@ -94,7 +94,7 @@
                       Background="{DynamicResource CanvasBackgroundBrush}"
                       PreviewMouseWheel="ScrollViewer_PreviewMouseWheel">
             <Grid x:Name="CanvasContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
-                <Image x:Name="CapturedImage" Stretch="None" />
+                <Image x:Name="CapturedImage" Stretch="Fill" />
                 <InkCanvas x:Name="AnnotationCanvas"
                            Background="Transparent"
                            EditingMode="Ink"
