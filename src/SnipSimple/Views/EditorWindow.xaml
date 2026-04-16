@@ -1,0 +1,138 @@
+<Window x:Class="SnipSimple.Views.EditorWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SnipEd - Unsaved"
+        Width="800" Height="600"
+        MinWidth="400" MinHeight="300"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        FontFamily="Segoe UI Variable, Segoe UI"
+        KeyDown="Window_KeyDown"
+        ShowInTaskbar="True"
+        Icon="/Resources/Icons/editor.png">
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="*" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Toolbar -->
+        <Border Grid.Row="0"
+                Background="{DynamicResource ToolbarBackgroundBrush}"
+                BorderBrush="{DynamicResource ToolbarBorderBrush}"
+                BorderThickness="0,0,0,1" Padding="8,4">
+            <DockPanel>
+                <!-- Theme toggle on the right -->
+                <Button x:Name="BtnThemeToggle" Content="&#x2600;"
+                        Click="BtnThemeToggle_Click"
+                        DockPanel.Dock="Right"
+                        Background="Transparent" BorderThickness="0"
+                        Foreground="{DynamicResource TextMutedBrush}"
+                        FontSize="16" Cursor="Hand" Padding="6,4"
+                        ToolTip="Toggle light/dark theme"
+                        VerticalAlignment="Center" />
+
+                <WrapPanel>
+                    <!-- Drawing tools -->
+                    <ToggleButton x:Name="BtnPencil" Content="Pencil" IsChecked="True"
+                                  Style="{StaticResource ToolbarToggleButton}"
+                                  Click="BtnPencil_Click" Margin="0,0,2,0" />
+                    <ToggleButton x:Name="BtnHighlighter" Content="Highlighter"
+                                  Style="{StaticResource ToolbarToggleButton}"
+                                  Click="BtnHighlighter_Click" Margin="0,0,2,0" />
+
+                    <Separator Margin="8,4" />
+
+                    <!-- Pencil color -->
+                    <TextBlock Text="Pencil:" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               FontSize="12" Margin="0,0,4,0" />
+                    <Border x:Name="PencilColorSwatch" Width="24" Height="24" CornerRadius="3"
+                            BorderBrush="{DynamicResource SwatchBorderBrush}" BorderThickness="1" Cursor="Hand"
+                            MouseLeftButtonDown="PencilColorSwatch_Click" Margin="0,0,8,0" />
+
+                    <!-- Highlighter color -->
+                    <TextBlock Text="Highlight:" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
+                               FontSize="12" Margin="0,0,4,0" />
+                    <Border x:Name="HighlighterColorSwatch" Width="24" Height="24" CornerRadius="3"
+                            BorderBrush="{DynamicResource SwatchBorderBrush}" BorderThickness="1" Cursor="Hand"
+                            MouseLeftButtonDown="HighlighterColorSwatch_Click" Margin="0,0,4,0" />
+
+                    <!-- Highlighter size -->
+                    <TextBlock x:Name="TxtHighlighterSize" Text="20px" VerticalAlignment="Center"
+                               Foreground="{DynamicResource TextMutedBrush}" FontSize="11" Margin="4,0,0,0" />
+
+                    <Separator Margin="8,4" />
+
+                    <!-- Crop -->
+                    <ToggleButton x:Name="BtnCrop" Content="Crop"
+                                  Style="{StaticResource ToolbarToggleButton}"
+                                  Click="BtnCrop_Click" Margin="0,0,2,0" />
+
+                    <Separator Margin="8,4" />
+
+                    <!-- Actions -->
+                    <Button Content="Copy (Ctrl+C)" Click="BtnCopy_Click"
+                            Style="{StaticResource ModernButton}" Margin="0,0,4,0" />
+
+                    <Button x:Name="BtnSave" Content="Save" Click="BtnSave_Click"
+                            Style="{StaticResource PrimaryButton}" Margin="0,0,2,0" />
+
+                    <Separator Margin="8,4" />
+
+                    <Button Content="Discard" Click="BtnDiscard_Click"
+                            Style="{StaticResource ModernButton}" />
+                </WrapPanel>
+            </DockPanel>
+        </Border>
+
+        <!-- Image + InkCanvas + Crop overlay -->
+        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+                      Background="{DynamicResource CanvasBackgroundBrush}"
+                      PreviewMouseWheel="ScrollViewer_PreviewMouseWheel">
+            <Grid x:Name="CanvasContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
+                <Image x:Name="CapturedImage" Stretch="None" />
+                <InkCanvas x:Name="AnnotationCanvas"
+                           Background="Transparent"
+                           EditingMode="Ink"
+                           UseCustomCursor="True"
+                           Cursor="Cross" />
+                <!-- Shift-draw preview line -->
+                <Canvas x:Name="ShiftDrawOverlay" Visibility="Collapsed" IsHitTestVisible="False">
+                    <Line x:Name="ShiftPreviewLine" StrokeThickness="3" StrokeDashArray="4 2" />
+                </Canvas>
+
+                <!-- Crop overlay (4 dark regions + selection border + dimension text) -->
+                <Canvas x:Name="CropOverlay" Visibility="Collapsed" IsHitTestVisible="False">
+                    <Rectangle x:Name="CropMaskTop" Fill="#80000000" />
+                    <Rectangle x:Name="CropMaskBottom" Fill="#80000000" />
+                    <Rectangle x:Name="CropMaskLeft" Fill="#80000000" />
+                    <Rectangle x:Name="CropMaskRight" Fill="#80000000" />
+                    <Rectangle x:Name="CropSelectionBorder" Stroke="#0078D4" StrokeThickness="2"
+                               StrokeDashArray="4 2" Fill="Transparent" />
+                    <!-- Rule-of-thirds grid lines -->
+                    <Line x:Name="CropGridH1" Stroke="#400078D4" StrokeThickness="1" />
+                    <Line x:Name="CropGridH2" Stroke="#400078D4" StrokeThickness="1" />
+                    <Line x:Name="CropGridV1" Stroke="#400078D4" StrokeThickness="1" />
+                    <Line x:Name="CropGridV2" Stroke="#400078D4" StrokeThickness="1" />
+                    <Border x:Name="CropDimLabel" Background="#CC333333" CornerRadius="3" Padding="6,2">
+                        <TextBlock x:Name="CropDimText" Foreground="White" FontSize="12"
+                                   FontFamily="Segoe UI Variable, Segoe UI" />
+                    </Border>
+                </Canvas>
+            </Grid>
+        </ScrollViewer>
+
+        <!-- Status bar -->
+        <Border Grid.Row="2"
+                Background="{DynamicResource StatusBarBackgroundBrush}"
+                BorderBrush="{DynamicResource StatusBarBorderBrush}"
+                BorderThickness="0,1,0,0" Padding="8,3">
+            <TextBlock x:Name="TxtStatus" Text="Hold Shift to constrain drawing to horizontal/vertical"
+                       Foreground="{DynamicResource TextMutedBrush}" FontSize="11" />
+        </Border>
+    </Grid>
+</Window>

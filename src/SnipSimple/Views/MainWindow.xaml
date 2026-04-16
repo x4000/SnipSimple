@@ -1,0 +1,69 @@
+<Window x:Class="SnipSimple.Views.MainWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="SnipSimple"
+        Width="420" Height="180"
+        ResizeMode="CanMinimize"
+        WindowStartupLocation="CenterScreen"
+        Background="{DynamicResource WindowBackgroundBrush}"
+        FontFamily="Segoe UI Variable, Segoe UI"
+        Icon="/Resources/Icons/scissors.png">
+
+    <Grid Margin="16,12">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="10" />
+            <RowDefinition Height="Auto" />
+            <RowDefinition Height="10" />
+            <RowDefinition Height="Auto" />
+        </Grid.RowDefinitions>
+
+        <!-- Mode buttons row -->
+        <DockPanel Grid.Row="0">
+            <!-- Theme toggle on far right -->
+            <Button x:Name="BtnThemeToggle" Content="&#x2600;"
+                    Click="BtnThemeToggle_Click"
+                    DockPanel.Dock="Right"
+                    Background="Transparent" BorderThickness="0"
+                    Foreground="{DynamicResource TextMutedBrush}"
+                    FontSize="16" Cursor="Hand" Padding="6,4"
+                    ToolTip="Toggle light/dark theme"
+                    VerticalAlignment="Center" />
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Center">
+                <Button x:Name="BtnRegion" Content="Region" Click="BtnRegion_Click"
+                        Style="{StaticResource PrimaryButton}" Width="100" Margin="0,0,8,0" />
+                <Button x:Name="BtnFullScreen" Content="Full Screen" Click="BtnFullScreen_Click"
+                        Style="{StaticResource ModernButton}" Width="100" Margin="0,0,8,0" />
+                <Button x:Name="BtnWindow" Content="Window" Click="BtnWindow_Click"
+                        Style="{StaticResource ModernButton}" Width="100" />
+            </StackPanel>
+        </DockPanel>
+
+        <!-- Delay row -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <TextBlock Text="Delay:" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondaryBrush}"
+                       FontSize="13" Margin="0,0,8,0" />
+            <ComboBox x:Name="CmbDelay" Width="120"
+                      Style="{StaticResource ModernComboBox}"
+                      SelectedIndex="0">
+                <ComboBoxItem Content="No delay" Tag="0" />
+                <ComboBoxItem Content="1 second" Tag="1" />
+                <ComboBoxItem Content="2 seconds" Tag="2" />
+                <ComboBoxItem Content="3 seconds" Tag="3" />
+                <ComboBoxItem Content="4 seconds" Tag="4" />
+                <ComboBoxItem Content="5 seconds" Tag="5" />
+                <ComboBoxItem Content="10 seconds" Tag="10" />
+            </ComboBox>
+        </StackPanel>
+
+        <!-- Options row -->
+        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Center" VerticalAlignment="Center">
+            <CheckBox x:Name="ChkForgetLast" Content="Forget last snip when taking new one"
+                      IsChecked="True" FontSize="12"
+                      Foreground="{DynamicResource CheckBoxForegroundBrush}"
+                      VerticalAlignment="Center" />
+        </StackPanel>
+    </Grid>
+</Window>

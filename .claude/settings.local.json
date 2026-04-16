@@ -1,0 +1,17 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(mv src/SnipSimple/SnipSimple/* src/SnipSimple/)",
+      "Bash(mv src/SnipSimple/SnipSimple/obj src/SnipSimple/)",
+      "Bash(rmdir src/SnipSimple/SnipSimple)",
+      "Bash(dotnet sln:*)",
+      "Bash(dotnet build:*)",
+      "Bash(where magick:*)",
+      "Bash(where convert:*)",
+      "Bash(where ffmpeg:*)",
+      "Bash(mkdir -p \"D:/vclarge/GitHub/SnipSimple/tools/PngToIco\")",
+      "Bash(dotnet new:*)",
+      "Bash(dotnet run:*)"
+    ]
+  }
+}
