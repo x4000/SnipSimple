@@ -119,7 +119,7 @@ public partial class MainWindow : Window
                 break;
 
             case SnipMode.Region:
-                result = await ShowRegionSelector();
+                result = await ShowRegionSelector(dpiScaleX, dpiScaleY);
                 break;
 
             case SnipMode.Window:
@@ -183,10 +183,16 @@ public partial class MainWindow : Window
         countdown.Close();
     }
 
-    private Task<CaptureResult?> ShowRegionSelector()
+    private Task<CaptureResult?> ShowRegionSelector(double dpiScaleX, double dpiScaleY)
     {
+        // Snapshot all screens BEFORE the overlay appears. Showing the overlay
+        // activates it and dismisses any open context menus, so we need to
+        // capture first and let the overlay render the frozen image instead
+        // of the live desktop. The user's drag then crops from the snapshot.
+        var snapshot = ScreenCaptureService.CaptureFullScreen(dpiScaleX, dpiScaleY);
+
         var tcs = new TaskCompletionSource<CaptureResult?>();
-        var overlay = new OverlayWindow(SnipMode.Region);
+        var overlay = new OverlayWindow(SnipMode.Region, snapshot?.Image);
         overlay.CaptureCompleted += result =>
         {
             tcs.TrySetResult(result);

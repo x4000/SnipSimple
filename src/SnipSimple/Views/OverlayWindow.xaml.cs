@@ -2,6 +2,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
 using System.Windows.Media;
+using System.Windows.Media.Imaging;
 using System.Windows.Shapes;
 using SnipSimple.Helpers;
 using SnipSimple.Models;
@@ -27,13 +28,19 @@ public partial class OverlayWindow : Window
     private double _dpiScaleX = 1.0;
     private double _dpiScaleY = 1.0;
 
+    // Frozen snapshot of all screens (region mode only). We crop from this
+    // on mouse-up so any context menu that was open when the snip started
+    // is preserved, even though showing the overlay itself dismisses it.
+    private readonly BitmapSource? _snapshot;
+
     public event Action<CaptureResult?>? CaptureCompleted;
     public event Action? CaptureCancelled;
 
-    public OverlayWindow(SnipMode mode)
+    public OverlayWindow(SnipMode mode, BitmapSource? snapshot = null)
     {
         InitializeComponent();
         _mode = mode;
+        _snapshot = snapshot;
 
         // Span all screens using WPF DIP coordinates
         var bounds = ScreenCaptureService.GetVirtualScreenBounds();
@@ -41,6 +48,17 @@ public partial class OverlayWindow : Window
         Top = bounds.Top;
         Width = bounds.Width;
         Height = bounds.Height;
+
+        FullDim.Width = bounds.Width;
+        FullDim.Height = bounds.Height;
+
+        if (snapshot != null)
+        {
+            BackgroundImage.Source = snapshot;
+            BackgroundImage.Width = bounds.Width;
+            BackgroundImage.Height = bounds.Height;
+            BackgroundImage.Visibility = Visibility.Visible;
+        }
 
         if (mode == SnipMode.Region)
         {
@@ -102,7 +120,7 @@ public partial class OverlayWindow : Window
         _leftMask = CreateMask();
         _rightMask = CreateMask();
 
-        OverlayCanvas.Background = Brushes.Transparent;
+        FullDim.Visibility = Visibility.Collapsed;
 
         InstructionBorder.Visibility = Visibility.Collapsed;
         DimensionLabel.Visibility = Visibility.Visible;
@@ -182,33 +200,70 @@ public partial class OverlayWindow : Window
         var w = Math.Abs(endPoint.X - _startPoint.X);
         var h = Math.Abs(endPoint.Y - _startPoint.Y);
 
-        // Make transparent so we capture the actual screen
-        Opacity = 0;
-
-        if (w > 5 && h > 5)
-        {
-            // Convert DIP coordinates to physical pixel coordinates for BitBlt.
-            // The overlay position (Left, Top) is in DIPs; the mouse coords (x, y)
-            // are relative to the overlay, also in DIPs. We need physical pixels.
-            var physX = (int)((Left + x) * _dpiScaleX);
-            var physY = (int)((Top + y) * _dpiScaleY);
-            var physW = (int)(w * _dpiScaleX);
-            var physH = (int)(h * _dpiScaleY);
-            var bounds = new Rect(physX, physY, physW, physH);
-
-            Dispatcher.InvokeAsync(async () =>
-            {
-                await Task.Delay(50);
-                var result = ScreenCaptureService.CaptureRegion(bounds, _dpiScaleX, _dpiScaleY);
-                CaptureCompleted?.Invoke(result);
-                Close();
-            });
-        }
-        else
+        if (w <= 5 || h <= 5)
         {
             CaptureCancelled?.Invoke();
             Close();
+            return;
         }
+
+        // Physical-pixel bounds on the virtual screen, for CaptureResult.Bounds.
+        var physX = (int)((Left + x) * _dpiScaleX);
+        var physY = (int)((Top + y) * _dpiScaleY);
+        var physW = (int)(w * _dpiScaleX);
+        var physH = (int)(h * _dpiScaleY);
+        var physBounds = new Rect(physX, physY, physW, physH);
+
+        if (_snapshot != null)
+        {
+            // Crop from the frozen snapshot so menus/popups that were visible
+            // when the snip started are preserved (the overlay's own activation
+            // would have dismissed them).
+            var result = CropFromSnapshot(x, y, w, h, physBounds);
+            CaptureCompleted?.Invoke(result);
+            Close();
+            return;
+        }
+
+        // Fallback: no snapshot available, fall back to live BitBlt.
+        Opacity = 0;
+        Dispatcher.InvokeAsync(async () =>
+        {
+            await Task.Delay(50);
+            var result = ScreenCaptureService.CaptureRegion(physBounds, _dpiScaleX, _dpiScaleY);
+            CaptureCompleted?.Invoke(result);
+            Close();
+        });
+    }
+
+    private CaptureResult? CropFromSnapshot(double x, double y, double w, double h, Rect physBounds)
+    {
+        if (_snapshot == null) return null;
+
+        // Selection coords are DIPs relative to the overlay; the snapshot covers
+        // the virtual screen at physical-pixel resolution, so scale in and clamp.
+        int srcX = (int)(x * _dpiScaleX);
+        int srcY = (int)(y * _dpiScaleY);
+        int srcW = (int)(w * _dpiScaleX);
+        int srcH = (int)(h * _dpiScaleY);
+
+        srcX = Math.Max(0, Math.Min(srcX, _snapshot.PixelWidth));
+        srcY = Math.Max(0, Math.Min(srcY, _snapshot.PixelHeight));
+        srcW = Math.Max(0, Math.Min(srcW, _snapshot.PixelWidth - srcX));
+        srcH = Math.Max(0, Math.Min(srcH, _snapshot.PixelHeight - srcY));
+
+        if (srcW <= 0 || srcH <= 0) return null;
+
+        var cropped = new CroppedBitmap(_snapshot, new Int32Rect(srcX, srcY, srcW, srcH));
+        cropped.Freeze();
+
+        return new CaptureResult
+        {
+            Image = cropped,
+            Bounds = physBounds,
+            DpiScaleX = _dpiScaleX,
+            DpiScaleY = _dpiScaleY
+        };
     }
 
     #endregion

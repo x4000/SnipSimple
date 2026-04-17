@@ -10,7 +10,24 @@
         Cursor="Cross"
         KeyDown="Window_KeyDown">
 
-    <Canvas x:Name="OverlayCanvas" Background="#40000000">
+    <Canvas x:Name="OverlayCanvas" Background="Transparent">
+        <!-- Frozen snapshot of all screens, used in region mode so the context
+             menu that was open when the snip started stays visible (showing it
+             live would require activating the overlay, which dismisses menus). -->
+        <Image x:Name="BackgroundImage"
+               Canvas.Left="0"
+               Canvas.Top="0"
+               IsHitTestVisible="False"
+               Visibility="Collapsed" />
+
+        <!-- Full-canvas dim overlay; hidden once a region drag starts and
+             replaced with four edge masks around the selection. -->
+        <Rectangle x:Name="FullDim"
+                   Canvas.Left="0"
+                   Canvas.Top="0"
+                   Fill="#40000000"
+                   IsHitTestVisible="False" />
+
         <!-- Selection rectangle drawn in code-behind -->
 
         <!-- Dimension label -->
