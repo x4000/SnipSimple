@@ -23,6 +23,9 @@ public class AppSettings
     [JsonPropertyName("editorTheme")]
     public string EditorTheme { get; set; } = "Dark";
 
+    [JsonPropertyName("soloWindow")]
+    public bool SoloWindow { get; set; } = true;
+
     public const int MaxRecentLocations = 10;
 }
 

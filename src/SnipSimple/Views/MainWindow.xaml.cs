@@ -13,6 +13,11 @@ public partial class MainWindow : Window
     private readonly List<EditorWindow> _openEditors = new();
     private AppTheme _currentTheme = AppTheme.Light;
 
+    // Solo-mode state: once we enter solo mode the MainWindow stays hidden
+    // until app exit and the single editor handles all subsequent snips.
+    private bool _inSoloMode;
+    private EditorWindow? _soloEditor;
+
     public MainWindow()
     {
         InitializeComponent();
@@ -25,6 +30,9 @@ public partial class MainWindow : Window
             ? AppTheme.Dark : AppTheme.Light;
         ThemeService.ApplyThemeToWindow(this, _currentTheme);
         UpdateThemeToggleIcon();
+
+        // Apply saved solo-window preference
+        ChkSoloWindow.IsChecked = _settingsService.Settings.SoloWindow;
 
         _hotkeyService = new HotkeyService();
         _hotkeyService.HotkeyPressed += OnHotkeyPressed;
@@ -45,13 +53,19 @@ public partial class MainWindow : Window
 
     private void UpdateThemeToggleIcon()
     {
-        BtnThemeToggle.Content = _currentTheme == AppTheme.Dark ? "\u263E" : "\u2600";
+        BtnThemeToggle.Content = _currentTheme == AppTheme.Dark ? "☾" : "☀";
         BtnThemeToggle.ToolTip = _currentTheme == AppTheme.Dark
             ? "Switch to light theme"
             : "Switch to dark theme";
     }
 
     #endregion
+
+    private void ChkSoloWindow_Click(object sender, RoutedEventArgs e)
+    {
+        _settingsService.Settings.SoloWindow = ChkSoloWindow.IsChecked == true;
+        _settingsService.Save();
+    }
 
     private int GetDelaySeconds()
     {
@@ -66,13 +80,57 @@ public partial class MainWindow : Window
 
     private void OnHotkeyPressed()
     {
-        Dispatcher.Invoke(() => StartSnip(SnipMode.Region));
+        Dispatcher.Invoke(() =>
+        {
+            if (_inSoloMode && _soloEditor != null)
+            {
+                _ = _soloEditor.RequestSnipFromHotkey(SnipMode.Region);
+            }
+            else
+            {
+                StartSnip(SnipMode.Region);
+            }
+        });
+    }
+
+    /// <summary>
+    /// Performs the screen capture flow (delay, overlay, capture). Used by
+    /// both MainWindow's Start path and the solo EditorWindow's snip path.
+    /// Caller is responsible for hiding/showing whatever UI shouldn't be
+    /// visible during capture.
+    /// </summary>
+    public async Task<CaptureResult?> PerformSnipAsync(SnipMode mode, int delaySeconds)
+    {
+        if (delaySeconds > 0)
+        {
+            await ShowCountdown(delaySeconds);
+        }
+
+        // Small delay to let any caller-hidden windows fully disappear
+        await Task.Delay(200);
+
+        double dpiScaleX = 1.0, dpiScaleY = 1.0;
+        var source = PresentationSource.FromVisual(this);
+        if (source?.CompositionTarget != null)
+        {
+            dpiScaleX = source.CompositionTarget.TransformToDevice.M11;
+            dpiScaleY = source.CompositionTarget.TransformToDevice.M22;
+        }
+
+        return mode switch
+        {
+            SnipMode.FullScreen => ScreenCaptureService.CaptureFullScreen(dpiScaleX, dpiScaleY),
+            SnipMode.Region => await ShowRegionSelector(dpiScaleX, dpiScaleY),
+            SnipMode.Window => await ShowWindowSelector(),
+            _ => null
+        };
     }
 
     private async void StartSnip(SnipMode mode)
     {
         int delay = GetDelaySeconds();
         bool forgetLast = ChkForgetLast.IsChecked == true;
+        bool soloMode = ChkSoloWindow.IsChecked == true;
 
         // If "forget last snip" is checked, close prior editor(s)
         if (forgetLast)
@@ -87,63 +145,45 @@ public partial class MainWindow : Window
         if (delay > 0)
         {
             WindowState = WindowState.Minimized;
-            HideAllEditors();
-            await ShowCountdown(delay);
         }
-        else
-        {
-            HideAllEditors();
-        }
-
-        // Hide main window during capture
+        HideAllEditors();
         Hide();
 
-        // Small delay to let the windows fully hide
-        await Task.Delay(200);
-
-        CaptureResult? result = null;
-
-        // Get DPI scale for fullscreen capture
-        double dpiScaleX = 1.0, dpiScaleY = 1.0;
-        var source = PresentationSource.FromVisual(this);
-        if (source?.CompositionTarget != null)
-        {
-            dpiScaleX = source.CompositionTarget.TransformToDevice.M11;
-            dpiScaleY = source.CompositionTarget.TransformToDevice.M22;
-        }
-
-        switch (mode)
-        {
-            case SnipMode.FullScreen:
-                result = ScreenCaptureService.CaptureFullScreen(dpiScaleX, dpiScaleY);
-                break;
-
-            case SnipMode.Region:
-                result = await ShowRegionSelector(dpiScaleX, dpiScaleY);
-                break;
-
-            case SnipMode.Window:
-                result = await ShowWindowSelector();
-                break;
-        }
+        var result = await PerformSnipAsync(mode, delay);
 
         EditorWindow? newEditor = null;
         if (result != null)
         {
             ClipboardService.CopyToClipboard(result.Image);
+
+            if (soloMode)
+            {
+                // Enter solo mode: keep MainWindow hidden permanently and
+                // hand off to a combined snip+edit editor window.
+                _inSoloMode = true;
+                _soloEditor = new EditorWindow(result, _settingsService,
+                    soloOwner: this, initialDelay: delay);
+                _soloEditor.Closed += (_, _) =>
+                {
+                    _soloEditor = null;
+                    Application.Current.Shutdown();
+                };
+                _soloEditor.Show();
+                _soloEditor.Activate();
+                return;
+            }
+
             newEditor = new EditorWindow(result, _settingsService);
             _openEditors.Add(newEditor);
             newEditor.Closed += (_, _) => _openEditors.Remove(newEditor);
         }
 
-        // Show older editors first (they go behind)
+        // Non-solo path: restore older editors and main window, then surface
+        // the new editor on top.
         ShowAllEditors();
-
-        // Show main window
         Show();
         WindowState = WindowState.Normal;
 
-        // Show new editor LAST so it's on top of everything
         if (newEditor != null)
         {
             newEditor.Show();

@@ -34,7 +34,7 @@
                         ToolTip="Toggle light/dark theme"
                         VerticalAlignment="Center" />
 
-                <WrapPanel>
+                <WrapPanel x:Name="EditingWrapPanel">
                     <!-- Drawing tools -->
                     <ToggleButton x:Name="BtnPencil" Content="Pencil" IsChecked="True"
                                   Style="{StaticResource ToolbarToggleButton}"
@@ -83,18 +83,56 @@
 
                     <Separator Margin="8,4" />
 
-                    <Button Content="Discard" Click="BtnDiscard_Click"
+                    <!-- Standalone-mode: Discard button -->
+                    <Button x:Name="BtnDiscard" Content="Discard" Click="BtnDiscard_Click"
                             Style="{StaticResource ModernButton}" />
+
+                    <!-- Solo-mode: Clear button (back to launcher state, no current snip) -->
+                    <Button x:Name="BtnClear" Content="Clear" Click="BtnClear_Click"
+                            Visibility="Collapsed"
+                            Style="{StaticResource ModernButton}" />
+
+                    <!-- Solo-mode: take a new snip in this same window -->
+                    <StackPanel x:Name="SoloSnipPanel" Orientation="Horizontal"
+                                Visibility="Collapsed" VerticalAlignment="Center">
+                        <Button x:Name="BtnSoloRegion" Content="Region"
+                                Click="BtnSoloRegion_Click"
+                                Style="{StaticResource ModernButton}" Margin="0,0,2,0" />
+                        <Button x:Name="BtnSoloFullScreen" Content="Full Screen"
+                                Click="BtnSoloFullScreen_Click"
+                                Style="{StaticResource ModernButton}" Margin="0,0,2,0" />
+                        <Button x:Name="BtnSoloWindow" Content="Window"
+                                Click="BtnSoloWindow_Click"
+                                Style="{StaticResource ModernButton}" Margin="0,0,8,0" />
+                        <TextBlock Text="Delay:" VerticalAlignment="Center"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
+                                   FontSize="12" Margin="0,0,4,0" />
+                        <ComboBox x:Name="CmbSoloDelay" Width="100"
+                                  Style="{StaticResource ModernComboBox}"
+                                  SelectedIndex="0">
+                            <ComboBoxItem Content="No delay" Tag="0" />
+                            <ComboBoxItem Content="1 second" Tag="1" />
+                            <ComboBoxItem Content="2 seconds" Tag="2" />
+                            <ComboBoxItem Content="3 seconds" Tag="3" />
+                            <ComboBoxItem Content="4 seconds" Tag="4" />
+                            <ComboBoxItem Content="5 seconds" Tag="5" />
+                            <ComboBoxItem Content="10 seconds" Tag="10" />
+                        </ComboBox>
+                    </StackPanel>
                 </WrapPanel>
             </DockPanel>
         </Border>
 
         <!-- Image + InkCanvas + Crop overlay -->
-        <ScrollViewer Grid.Row="1" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
+        <ScrollViewer x:Name="ImageScrollViewer" Grid.Row="1"
+                      HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Auto"
                       Background="{DynamicResource CanvasBackgroundBrush}"
                       PreviewMouseWheel="ScrollViewer_PreviewMouseWheel">
-            <Grid x:Name="CanvasContainer" HorizontalAlignment="Center" VerticalAlignment="Center" Margin="20">
-                <Image x:Name="CapturedImage" Stretch="Fill" />
+            <Grid x:Name="CanvasContainer" HorizontalAlignment="Center" VerticalAlignment="Center"
+                  Margin="20" UseLayoutRounding="True" SnapsToDevicePixels="True">
+                <Image x:Name="CapturedImage" Stretch="Fill"
+                       RenderOptions.BitmapScalingMode="NearestNeighbor"
+                       UseLayoutRounding="True" SnapsToDevicePixels="True" />
                 <InkCanvas x:Name="AnnotationCanvas"
                            Background="Transparent"
                            EditingMode="Ink"
@@ -127,7 +165,7 @@
         </ScrollViewer>
 
         <!-- Status bar -->
-        <Border Grid.Row="2"
+        <Border x:Name="StatusBar" Grid.Row="2"
                 Background="{DynamicResource StatusBarBackgroundBrush}"
                 BorderBrush="{DynamicResource StatusBarBorderBrush}"
                 BorderThickness="0,1,0,0" Padding="8,3">

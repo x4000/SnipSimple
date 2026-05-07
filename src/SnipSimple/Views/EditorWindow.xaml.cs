@@ -14,7 +14,7 @@ namespace SnipSimple.Views;
 
 public partial class EditorWindow : Window
 {
-    private readonly CaptureResult _capture;
+    private CaptureResult _capture;
     private readonly SettingsService _settingsService;
     private readonly Stack<StrokeCollection> _redoStack = new();
     private bool _isPencilMode = true;
@@ -23,6 +23,14 @@ public partial class EditorWindow : Window
     private bool _isCropMode;
     private double _highlighterSize = 20;
     private AppTheme _currentTheme = AppTheme.Dark;
+
+    // Solo mode: this single editor window plays both the snip-launcher and
+    // editor roles, with the MainWindow hidden until app exit.
+    private readonly MainWindow? _soloOwner;
+    private bool IsSoloMode => _soloOwner != null;
+    private bool _soloSnipInProgress;
+    // True while the editor is in its post-Clear "launcher only" state.
+    private bool _inLauncherState;
 
     // Shift-constrained drawing state
     private bool _shiftDrawing;
@@ -47,12 +55,14 @@ public partial class EditorWindow : Window
         "OneDrive", "Dropbox", "Google Drive"
     };
 
-    public EditorWindow(CaptureResult capture, SettingsService settingsService)
+    public EditorWindow(CaptureResult capture, SettingsService settingsService,
+        MainWindow? soloOwner = null, int initialDelay = 0)
     {
         InitializeComponent();
 
         _capture = capture;
         _settingsService = settingsService;
+        _soloOwner = soloOwner;
 
         // Apply saved editor theme (defaults to Dark)
         _currentTheme = _settingsService.Settings.EditorTheme == "Light"
@@ -64,17 +74,8 @@ public partial class EditorWindow : Window
         _pencilColor = ParseColor(_settingsService.Settings.PencilColor, Colors.Red);
         _highlighterColor = ParseColor(_settingsService.Settings.HighlighterColor, Colors.Yellow);
 
-        // Set up image — display at 1:1 pixel mapping.
-        // The image's PixelWidth is in physical screen pixels.
-        // Divide by screen DPI scale to get DIPs so WPF renders it 1:1.
-        CapturedImage.Source = capture.Image;
-        double dipWidth = capture.Image.PixelWidth / capture.DpiScaleX;
-        double dipHeight = capture.Image.PixelHeight / capture.DpiScaleY;
-        CapturedImage.Width = dipWidth;
-        CapturedImage.Height = dipHeight;
-
-        AnnotationCanvas.Width = dipWidth;
-        AnnotationCanvas.Height = dipHeight;
+        // Apply image at 1:1 pixel mapping
+        ApplyCapturedImage(capture);
 
         // Set up ink canvas
         SetPencilMode();
@@ -88,14 +89,70 @@ public partial class EditorWindow : Window
         AnnotationCanvas.PreviewMouseMove += ShiftDraw_MouseMove;
         AnnotationCanvas.PreviewMouseLeftButtonUp += ShiftDraw_MouseUp;
 
+        // Initialise solo-mode UI (toolbar swap, title, icon)
+        if (IsSoloMode)
+        {
+            ApplySoloModeUi(initialDelay);
+        }
+    }
+
+    /// <summary>
+    /// Applies the captured image to the editor: sets the source, sizes the
+    /// canvas to 1:1 DIPs, and resizes the window to fit. Shared by the
+    /// constructor and solo-mode image replacement.
+    /// </summary>
+    private void ApplyCapturedImage(CaptureResult capture)
+    {
+        // The image's PixelWidth is in physical screen pixels.
+        // Divide by screen DPI scale to get DIPs so WPF renders it 1:1.
+        CapturedImage.Source = capture.Image;
+        double dipWidth = capture.Image.PixelWidth / capture.DpiScaleX;
+        double dipHeight = capture.Image.PixelHeight / capture.DpiScaleY;
+        CapturedImage.Width = dipWidth;
+        CapturedImage.Height = dipHeight;
+
+        AnnotationCanvas.Width = dipWidth;
+        AnnotationCanvas.Height = dipHeight;
+
         // Size window to fit image without scrollbars — use DIP sizes.
         // Account for: canvas margin (20 each side = 40), scrollbar gutter (~20),
         // window chrome (~16 horiz, ~40 vert), toolbar (~42), status bar (~28).
-        double extraWidth = 40 + 20 + 16;   // margins + scrollbar room + chrome
-        double extraHeight = 40 + 20 + 40 + 42 + 28; // margins + scrollbar room + chrome + toolbar + statusbar
+        double extraWidth = 40 + 20 + 16;
+        double extraHeight = 40 + 20 + 40 + 42 + 28;
         var screenBounds = ScreenCaptureService.GetPrimaryScreenBounds();
         Width = Math.Min(dipWidth + extraWidth, screenBounds.Width * 0.9);
         Height = Math.Min(dipHeight + extraHeight, screenBounds.Height * 0.9);
+    }
+
+    private void ApplySoloModeUi(int initialDelay)
+    {
+        // Title: plain "SnipSimple" — no unsaved/saved indicator.
+        Title = "SnipSimple";
+
+        // Icon: scissors (the SnipSimple icon), not the editor icon.
+        try
+        {
+            Icon = new BitmapImage(new Uri("pack://application:,,,/Resources/Icons/scissors.png"));
+        }
+        catch
+        {
+            // Leave default icon if the resource lookup fails.
+        }
+
+        // Swap Discard for Clear + Region/FullScreen/Window/Delay.
+        BtnDiscard.Visibility = Visibility.Collapsed;
+        BtnClear.Visibility = Visibility.Visible;
+        SoloSnipPanel.Visibility = Visibility.Visible;
+
+        // Carry the current delay choice into the editor's combobox.
+        foreach (var item in CmbSoloDelay.Items.OfType<ComboBoxItem>())
+        {
+            if (item.Tag is string tag && int.TryParse(tag, out var v) && v == initialDelay)
+            {
+                CmbSoloDelay.SelectedItem = item;
+                break;
+            }
+        }
     }
 
     private static Color ParseColor(string hex, Color fallback)
@@ -761,7 +818,10 @@ public partial class EditorWindow : Window
                 BitmapHelper.SaveBitmapToFile(bitmap, dialog.FileName);
                 var savedFolder = Path.GetDirectoryName(dialog.FileName)!;
                 _settingsService.AddRecentSaveLocation(savedFolder);
-                Title = $"SnipEd - Saved to {dialog.FileName}";
+                if (!IsSoloMode)
+                {
+                    Title = $"SnipEd - Saved to {dialog.FileName}";
+                }
                 TxtStatus.Text = $"Saved: {dialog.FileName}";
             }
             catch (Exception ex)
@@ -775,6 +835,150 @@ public partial class EditorWindow : Window
     private void BtnDiscard_Click(object sender, RoutedEventArgs e)
     {
         Close();
+    }
+
+    #endregion
+
+    #region Solo-Mode Snip Buttons
+
+    private void BtnSoloRegion_Click(object sender, RoutedEventArgs e)
+        => _ = StartSoloSnipAsync(SnipMode.Region);
+
+    private void BtnSoloFullScreen_Click(object sender, RoutedEventArgs e)
+        => _ = StartSoloSnipAsync(SnipMode.FullScreen);
+
+    private void BtnSoloWindow_Click(object sender, RoutedEventArgs e)
+        => _ = StartSoloSnipAsync(SnipMode.Window);
+
+    /// <summary>
+    /// Triggered by the global hotkey while solo mode is active. Routes
+    /// through the same path as a button click so a single snip can't run
+    /// concurrently with another.
+    /// </summary>
+    public Task RequestSnipFromHotkey(SnipMode mode) => StartSoloSnipAsync(mode);
+
+    private async Task StartSoloSnipAsync(SnipMode mode)
+    {
+        if (!IsSoloMode || _soloOwner == null) return;
+        if (_soloSnipInProgress) return;
+
+        _soloSnipInProgress = true;
+        try
+        {
+            int delay = GetSoloDelaySeconds();
+
+            // Hide this editor during capture so it doesn't appear in the snip.
+            Hide();
+
+            var result = await _soloOwner.PerformSnipAsync(mode, delay);
+
+            if (result != null)
+            {
+                ClipboardService.CopyToClipboard(result.Image);
+                ReplaceCapture(result);
+            }
+
+            Show();
+            Activate();
+        }
+        finally
+        {
+            _soloSnipInProgress = false;
+        }
+    }
+
+    private int GetSoloDelaySeconds()
+    {
+        if (CmbSoloDelay.SelectedItem is ComboBoxItem item && item.Tag is string tag
+            && int.TryParse(tag, out var v))
+            return v;
+        return 0;
+    }
+
+    private void ReplaceCapture(CaptureResult capture)
+    {
+        _capture = capture;
+
+        // New image: clear annotations and undo history.
+        AnnotationCanvas.Strokes.Clear();
+        _redoStack.Clear();
+        _cropUndoStack.Clear();
+
+        // If we were in the post-Clear launcher state, restore full editor UI.
+        if (_inLauncherState)
+        {
+            ExitLauncherState();
+        }
+
+        ApplyCapturedImage(capture);
+
+        // Solo title is fixed — re-assert it in case a previous save changed it.
+        Title = "SnipSimple";
+        TxtStatus.Text = "Hold Shift to constrain drawing to horizontal/vertical";
+    }
+
+    private void BtnClear_Click(object sender, RoutedEventArgs e)
+    {
+        if (!IsSoloMode) return;
+        EnterLauncherState();
+    }
+
+    /// <summary>
+    /// Hide the canvas, status bar, and all editing tools so only the snip
+    /// launcher controls remain — the "back to a normal SnipSimple window"
+    /// state requested for solo mode.
+    /// </summary>
+    private void EnterLauncherState()
+    {
+        _inLauncherState = true;
+
+        AnnotationCanvas.Strokes.Clear();
+        _redoStack.Clear();
+        _cropUndoStack.Clear();
+        CapturedImage.Source = null;
+
+        foreach (UIElement child in EditingWrapPanel.Children)
+        {
+            if (child == SoloSnipPanel) continue;
+            child.Visibility = Visibility.Collapsed;
+        }
+
+        ImageScrollViewer.Visibility = Visibility.Collapsed;
+        StatusBar.Visibility = Visibility.Collapsed;
+
+        // Compact launcher size — comparable to MainWindow.
+        MinWidth = 100;
+        MinHeight = 60;
+        Width = 520;
+        Height = 90;
+    }
+
+    private void ExitLauncherState()
+    {
+        _inLauncherState = false;
+
+        foreach (UIElement child in EditingWrapPanel.Children)
+        {
+            if (child == SoloSnipPanel) continue;
+            if (child == BtnDiscard)
+            {
+                child.Visibility = IsSoloMode ? Visibility.Collapsed : Visibility.Visible;
+                continue;
+            }
+            if (child == BtnClear)
+            {
+                child.Visibility = IsSoloMode ? Visibility.Visible : Visibility.Collapsed;
+                continue;
+            }
+            child.Visibility = Visibility.Visible;
+        }
+
+        ImageScrollViewer.Visibility = Visibility.Visible;
+        StatusBar.Visibility = Visibility.Visible;
+
+        // Restore full-editor minimums; ApplyCapturedImage will set Width/Height.
+        MinWidth = 400;
+        MinHeight = 300;
     }
 
     #endregion
